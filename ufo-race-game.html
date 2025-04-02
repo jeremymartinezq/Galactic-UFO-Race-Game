@@ -1,0 +1,813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galactic UFO Race</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            overflow: hidden;
+            user-select: none;
+        }
+        
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+        }
+        
+        #game-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            background-color: transparent;
+        }
+        
+        #game-ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 10;
+            text-shadow: 0 0 5px #00ffff, 0 0 10px #00aaff;
+        }
+        
+        #game-over, #game-start {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #fff;
+            font-size: 36px;
+            text-align: center;
+            text-shadow: 0 0 10px #ff00ff, 0 0 20px #aa00ff;
+            z-index: 20;
+            display: none;
+        }
+        
+        button {
+            background: linear-gradient(to bottom, #00aaff, #0055aa);
+            border: 2px solid #00ffff;
+            border-radius: 10px;
+            color: white;
+            padding: 10px 20px;
+            font-size: 20px;
+            margin-top: 20px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        button:hover {
+            background: linear-gradient(to bottom, #00ccff, #0077cc);
+            transform: scale(1.05);
+            box-shadow: 0 0 15px #00ffff;
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        <div id="game-ui">
+            <div>SPEED: <span id="speed">0</span> LY/S</div>
+            <div>SCORE: <span id="score">0</span></div>
+            <div>LIVES: <span id="lives">3</span></div>
+        </div>
+        <div id="game-start">
+            <h1>GALACTIC UFO RACE</h1>
+            <p>Navigate through the cosmic obstacles and collect stardust!</p>
+            <p>Use arrow keys or WASD to control your UFO</p>
+            <button id="start-button">START GAME</button>
+        </div>
+        <div id="game-over">
+            <h1>GAME OVER</h1>
+            <p>Your final score: <span id="final-score">0</span></p>
+            <button id="restart-button">PLAY AGAIN</button>
+        </div>
+    </div>
+
+    <script>
+        // Game Setup
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const gameContainer = document.getElementById('game-container');
+        const gameStart = document.getElementById('game-start');
+        const gameOver = document.getElementById('game-over');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+        const speedDisplay = document.getElementById('speed');
+        const scoreDisplay = document.getElementById('score');
+        const livesDisplay = document.getElementById('lives');
+        const finalScoreDisplay = document.getElementById('final-score');
+
+        // Resize canvas to fit window
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // Game variables
+        let gameRunning = false;
+        let animationFrame;
+        let score = 0;
+        let lives = 3;
+        let speed = 5;
+        let stars = [];
+        let obstacles = [];
+        let powerUps = [];
+        let lastObstacleTime = 0;
+        let lastPowerUpTime = 0;
+        let obstacleInterval = 1500;
+        let powerUpInterval = 5000;
+        let backgroundPos = 0;
+        let starDust = [];
+        
+        // Player UFO
+        const player = {
+            x: canvas.width / 2,
+            y: canvas.height - 100,
+            width: 60,
+            height: 30,
+            speed: 8,
+            dx: 0,
+            dy: 0,
+            shield: false,
+            boostTime: 0,
+            draw() {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                // UFO body
+                const gradient = ctx.createLinearGradient(0, -10, 0, 10);
+                gradient.addColorStop(0, '#00ffff');
+                gradient.addColorStop(1, '#0066cc');
+                
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.width / 2, this.height / 2, 0, 0, Math.PI * 2);
+                ctx.fillStyle = gradient;
+                ctx.fill();
+                
+                // UFO cockpit
+                ctx.beginPath();
+                ctx.ellipse(0, -5, this.width / 4, this.height / 3, 0, 0, Math.PI, true);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                ctx.fill();
+                
+                // UFO lights
+                const lightPositions = [-20, -10, 0, 10, 20];
+                const lightColors = ['#ff0000', '#ffff00', '#00ff00', '#ffff00', '#ff0000'];
+                
+                lightPositions.forEach((pos, i) => {
+                    ctx.beginPath();
+                    ctx.arc(pos, 5, 3, 0, Math.PI * 2);
+                    ctx.fillStyle = lightColors[i];
+                    ctx.fill();
+                });
+                
+                // Shield effect
+                if (this.shield) {
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, this.width / 1.5, this.height * 1.2, 0, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(100, 200, 255, 0.8)';
+                    ctx.lineWidth = 3;
+                    ctx.stroke();
+                    
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, this.width / 1.5 + 5, this.height * 1.2 + 5, 0, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'rgba(100, 200, 255, 0.4)';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                }
+                
+                // Boost effect
+                if (this.boostTime > 0) {
+                    const flameLength = Math.random() * 10 + 20;
+                    ctx.beginPath();
+                    ctx.moveTo(-15, 10);
+                    ctx.lineTo(-15, 10 + flameLength);
+                    ctx.lineTo(0, 10 + flameLength / 2);
+                    ctx.lineTo(15, 10 + flameLength);
+                    ctx.lineTo(15, 10);
+                    ctx.fillStyle = 'rgba(255, 100, 0, 0.8)';
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+            },
+            update() {
+                // Apply movement
+                this.x += this.dx;
+                this.y += this.dy;
+                
+                // Screen boundaries
+                if (this.x < this.width / 2) this.x = this.width / 2;
+                if (this.x > canvas.width - this.width / 2) this.x = canvas.width - this.width / 2;
+                if (this.y < this.height) this.y = this.height;
+                if (this.y > canvas.height - this.height / 2) this.y = canvas.height - this.height / 2;
+                
+                // Boost timer
+                if (this.boostTime > 0) {
+                    this.boostTime--;
+                    if (this.boostTime === 0) {
+                        speed = Math.max(5, speed - 3);
+                    }
+                }
+            }
+        };
+        
+        // Controls
+        const keys = {
+            ArrowUp: false,
+            ArrowRight: false,
+            ArrowDown: false,
+            ArrowLeft: false,
+            w: false,
+            a: false,
+            s: false,
+            d: false
+        };
+        
+        function handleKeyDown(e) {
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = true;
+            }
+        }
+        
+        function handleKeyUp(e) {
+            if (keys.hasOwnProperty(e.key)) {
+                keys[e.key] = false;
+            }
+        }
+        
+        document.addEventListener('keydown', handleKeyDown);
+        document.addEventListener('keyup', handleKeyUp);
+        
+        // Initialization functions
+        function createStars() {
+            stars = [];
+            for (let i = 0; i < 200; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 2 + 1,
+                    speed: Math.random() * 3 + 1
+                });
+            }
+        }
+        
+        function createStarDust() {
+            const dustCount = Math.floor(Math.random() * 3) + 3;
+            for (let i = 0; i < dustCount; i++) {
+                starDust.push({
+                    x: Math.random() * canvas.width,
+                    y: -50,
+                    size: Math.random() * 15 + 10,
+                    speed: Math.random() * 2 + speed,
+                    rotation: Math.random() * Math.PI * 2,
+                    rotationSpeed: (Math.random() - 0.5) * 0.05
+                });
+            }
+        }
+        
+        function createObstacle() {
+            const types = ['asteroid', 'satellite', 'alienShip'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            const width = type === 'asteroid' ? 60 : type === 'satellite' ? 80 : 100;
+            const height = type === 'asteroid' ? 60 : type === 'satellite' ? 30 : 40;
+            
+            obstacles.push({
+                x: Math.random() * (canvas.width - width) + width / 2,
+                y: -height,
+                width: width,
+                height: height,
+                type: type,
+                rotation: 0,
+                rotationSpeed: (Math.random() - 0.5) * 0.05
+            });
+        }
+        
+        function createPowerUp() {
+            const types = ['shield', 'boost', 'extraLife'];
+            const type = types[Math.floor(Math.random() * types.length)];
+            
+            powerUps.push({
+                x: Math.random() * (canvas.width - 30) + 15,
+                y: -30,
+                width: 30,
+                height: 30,
+                type: type,
+                rotation: 0,
+                rotationSpeed: 0.03
+            });
+        }
+        
+        // Drawing functions
+        function drawBackground() {
+            // Starfield
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Stars
+            stars.forEach(star => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.size / 3})`;
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            
+            // Deep space objects
+            backgroundPos += speed * 0.2;
+            const nebula = {
+                x: canvas.width / 3,
+                y: (backgroundPos % (canvas.height * 2)) - canvas.height,
+                size: canvas.width / 2
+            };
+            
+            // Draw nebula
+            const gradient = ctx.createRadialGradient(
+                nebula.x, nebula.y, 0,
+                nebula.x, nebula.y, nebula.size
+            );
+            gradient.addColorStop(0, 'rgba(150, 50, 255, 0.3)');
+            gradient.addColorStop(0.5, 'rgba(50, 100, 255, 0.1)');
+            gradient.addColorStop(1, 'rgba(0, 0, 50, 0)');
+            
+            ctx.fillStyle = gradient;
+            ctx.beginPath();
+            ctx.arc(nebula.x, nebula.y, nebula.size, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        
+        function drawStarDust() {
+            starDust.forEach(dust => {
+                ctx.save();
+                ctx.translate(dust.x, dust.y);
+                ctx.rotate(dust.rotation);
+                
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, dust.size);
+                gradient.addColorStop(0, 'rgba(255, 255, 150, 0.9)');
+                gradient.addColorStop(0.5, 'rgba(255, 200, 50, 0.5)');
+                gradient.addColorStop(1, 'rgba(255, 100, 0, 0)');
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                
+                // Star shape
+                for (let i = 0; i < 5; i++) {
+                    const outerRadius = dust.size;
+                    const innerRadius = dust.size / 2;
+                    const outerAngle = (i * Math.PI * 2 / 5);
+                    const innerAngle = outerAngle + Math.PI / 5;
+                    
+                    if (i === 0) {
+                        ctx.moveTo(Math.cos(outerAngle) * outerRadius, Math.sin(outerAngle) * outerRadius);
+                    } else {
+                        ctx.lineTo(Math.cos(outerAngle) * outerRadius, Math.sin(outerAngle) * outerRadius);
+                    }
+                    
+                    ctx.lineTo(Math.cos(innerAngle) * innerRadius, Math.sin(innerAngle) * innerRadius);
+                }
+                
+                ctx.closePath();
+                ctx.fill();
+                
+                ctx.restore();
+            });
+        }
+        
+        function drawObstacles() {
+            obstacles.forEach(obstacle => {
+                ctx.save();
+                ctx.translate(obstacle.x, obstacle.y);
+                ctx.rotate(obstacle.rotation);
+                
+                if (obstacle.type === 'asteroid') {
+                    // Draw asteroid
+                    ctx.beginPath();
+                    const radius = obstacle.width / 2;
+                    
+                    // Irregular shape
+                    for (let i = 0; i < 8; i++) {
+                        const angle = (i / 8) * Math.PI * 2;
+                        const variance = Math.sin(i * 5) * radius * 0.2;
+                        const r = radius + variance;
+                        const x = Math.cos(angle) * r;
+                        const y = Math.sin(angle) * r;
+                        
+                        if (i === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                    
+                    ctx.closePath();
+                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, radius);
+                    gradient.addColorStop(0, '#aaa');
+                    gradient.addColorStop(1, '#555');
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    // Crater
+                    ctx.beginPath();
+                    ctx.arc(radius / 3, -radius / 3, radius / 4, 0, Math.PI * 2);
+                    ctx.fillStyle = '#444';
+                    ctx.fill();
+                } else if (obstacle.type === 'satellite') {
+                    // Draw satellite
+                    ctx.fillStyle = '#888';
+                    ctx.fillRect(-obstacle.width / 2, -obstacle.height / 2, obstacle.width, obstacle.height);
+                    
+                    // Solar panels
+                    ctx.fillStyle = '#00aaff';
+                    ctx.fillRect(-obstacle.width / 2 - 20, -obstacle.height / 4, 15, obstacle.height / 2);
+                    ctx.fillRect(obstacle.width / 2 + 5, -obstacle.height / 4, 15, obstacle.height / 2);
+                    
+                    // Antenna
+                    ctx.beginPath();
+                    ctx.moveTo(0, -obstacle.height / 2);
+                    ctx.lineTo(0, -obstacle.height / 2 - 15);
+                    ctx.lineWidth = 2;
+                    ctx.strokeStyle = '#ccc';
+                    ctx.stroke();
+                } else if (obstacle.type === 'alienShip') {
+                    // Draw alien ship
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, obstacle.width / 2, obstacle.height / 2, 0, 0, Math.PI * 2);
+                    const gradient = ctx.createLinearGradient(0, -obstacle.height / 2, 0, obstacle.height / 2);
+                    gradient.addColorStop(0, '#ff0066');
+                    gradient.addColorStop(1, '#660033');
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    // Windows
+                    const windowCount = 3;
+                    const windowSize = 6;
+                    const windowSpacing = obstacle.width / 4;
+                    
+                    for (let i = 0; i < windowCount; i++) {
+                        const x = (i - 1) * windowSpacing;
+                        ctx.beginPath();
+                        ctx.arc(x, -5, windowSize, 0, Math.PI * 2);
+                        ctx.fillStyle = '#ffff00';
+                        ctx.fill();
+                    }
+                }
+                
+                ctx.restore();
+            });
+        }
+        
+        function drawPowerUps() {
+            powerUps.forEach(powerUp => {
+                ctx.save();
+                ctx.translate(powerUp.x, powerUp.y);
+                ctx.rotate(powerUp.rotation);
+                
+                if (powerUp.type === 'shield') {
+                    // Shield - blue orb
+                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, powerUp.width / 2);
+                    gradient.addColorStop(0, '#ffffff');
+                    gradient.addColorStop(0.5, '#00aaff');
+                    gradient.addColorStop(1, '#0055aa');
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, powerUp.width / 2, 0, Math.PI * 2);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    // Shield icon
+                    ctx.beginPath();
+                    ctx.moveTo(0, -10);
+                    ctx.lineTo(-7, -5);
+                    ctx.lineTo(-7, 5);
+                    ctx.lineTo(0, 10);
+                    ctx.lineTo(7, 5);
+                    ctx.lineTo(7, -5);
+                    ctx.closePath();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else if (powerUp.type === 'boost') {
+                    // Boost - red orb
+                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, powerUp.width / 2);
+                    gradient.addColorStop(0, '#ffffff');
+                    gradient.addColorStop(0.5, '#ffaa00');
+                    gradient.addColorStop(1, '#ff5500');
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, powerUp.width / 2, 0, Math.PI * 2);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    // Flame icon
+                    ctx.beginPath();
+                    ctx.moveTo(-5, -8);
+                    ctx.lineTo(0, -12);
+                    ctx.lineTo(5, -8);
+                    ctx.lineTo(8, 0);
+                    ctx.lineTo(5, 8);
+                    ctx.lineTo(0, 12);
+                    ctx.lineTo(-5, 8);
+                    ctx.lineTo(-8, 0);
+                    ctx.closePath();
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = 2;
+                    ctx.stroke();
+                } else if (powerUp.type === 'extraLife') {
+                    // Extra life - green orb
+                    const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, powerUp.width / 2);
+                    gradient.addColorStop(0, '#ffffff');
+                    gradient.addColorStop(0.5, '#00ff00');
+                    gradient.addColorStop(1, '#00aa00');
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, powerUp.width / 2, 0, Math.PI * 2);
+                    ctx.fillStyle = gradient;
+                    ctx.fill();
+                    
+                    // Heart icon
+                    ctx.beginPath();
+                    ctx.moveTo(0, 5);
+                    ctx.lineTo(-8, -3);
+                    ctx.quadraticCurveTo(-10, -10, -3, -10);
+                    ctx.quadraticCurveTo(0, -10, 0, -5);
+                    ctx.quadraticCurveTo(0, -10, 3, -10);
+                    ctx.quadraticCurveTo(10, -10, 8, -3);
+                    ctx.closePath();
+                    ctx.fillStyle = '#ffffff';
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+            });
+        }
+        
+        // Game logic
+        function handlePlayerMovement() {
+            // Reset movement
+            player.dx = 0;
+            player.dy = 0;
+            
+            // Handle keyboard controls
+            if ((keys.ArrowUp || keys.w) && player.y > player.height) {
+                player.dy = -player.speed;
+            }
+            if ((keys.ArrowDown || keys.s) && player.y < canvas.height - player.height / 2) {
+                player.dy = player.speed;
+            }
+            if ((keys.ArrowLeft || keys.a) && player.x > player.width / 2) {
+                player.dx = -player.speed;
+            }
+            if ((keys.ArrowRight || keys.d) && player.x < canvas.width - player.width / 2) {
+                player.dx = player.speed;
+            }
+        }
+        
+        function updateStars() {
+            stars.forEach(star => {
+                star.y += star.speed + speed / 2;
+                
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+        }
+        
+        function updateStarDust() {
+            for (let i = starDust.length - 1; i >= 0; i--) {
+                const dust = starDust[i];
+                dust.y += dust.speed;
+                dust.rotation += dust.rotationSpeed;
+                
+                // Remove if off screen
+                if (dust.y > canvas.height + dust.size) {
+                    starDust.splice(i, 1);
+                }
+                
+                // Check for collision with player
+                if (
+                    dust.x + dust.size > player.x - player.width / 2 &&
+                    dust.x - dust.size < player.x + player.width / 2 &&
+                    dust.y + dust.size > player.y - player.height / 2 &&
+                    dust.y - dust.size < player.y + player.height / 2
+                ) {
+                    starDust.splice(i, 1);
+                    score += 50;
+                    speedUp();
+                }
+            }
+        }
+        
+        function updateObstacles() {
+            // Create new obstacles
+            const currentTime = Date.now();
+            if (currentTime - lastObstacleTime > obstacleInterval) {
+                createObstacle();
+                lastObstacleTime = currentTime;
+                
+                // Decrease interval for difficulty
+                obstacleInterval = Math.max(800, obstacleInterval - 10);
+            }
+            
+            // Update existing obstacles
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obstacle = obstacles[i];
+                obstacle.y += speed;
+                obstacle.rotation += obstacle.rotationSpeed;
+                
+                // Remove if off screen
+                if (obstacle.y > canvas.height + obstacle.height) {
+                    obstacles.splice(i, 1);
+                    continue;
+                }
+                
+                // Check for collision with player
+                if (!player.shield && checkCollision(player, obstacle)) {
+                    obstacles.splice(i, 1);
+                    loseLife();
+                }
+            }
+        }
+        
+        function updatePowerUps() {
+            // Create new power-ups
+            const currentTime = Date.now();
+            if (currentTime - lastPowerUpTime > powerUpInterval) {
+                createPowerUp();
+                lastPowerUpTime = currentTime;
+            }
+            
+            // Update existing power-ups
+            for (let i = powerUps.length - 1; i >= 0; i--) {
+                const powerUp = powerUps[i];
+                powerUp.y += speed;
+                powerUp.rotation += powerUp.rotationSpeed;
+                
+                // Remove if off screen
+                if (powerUp.y > canvas.height + powerUp.height) {
+                    powerUps.splice(i, 1);
+                    continue;
+                }
+                
+                // Check for collision with player
+                if (checkCollision(player, powerUp)) {
+                    applyPowerUp(powerUp.type);
+                    powerUps.splice(i, 1);
+                }
+            }
+        }
+        
+        function checkCollision(obj1, obj2) {
+            return (
+                obj1.x - obj1.width / 2 < obj2.x + obj2.width / 2 &&
+                obj1.x + obj1.width / 2 > obj2.x - obj2.width / 2 &&
+                obj1.y - obj1.height / 2 < obj2.y + obj2.height / 2 &&
+                obj1.y + obj1.height / 2 > obj2.y - obj2.height / 2
+            );
+        }
+        
+        function applyPowerUp(type) {
+            switch (type) {
+                case 'shield':
+                    player.shield = true;
+                    setTimeout(() => {
+                        player.shield = false;
+                    }, 10000);
+                    break;
+                case 'boost':
+                    player.boostTime = 300;
+                    speed += 3;
+                    break;
+                case 'extraLife':
+                    lives++;
+                    updateUI();
+                    break;
+            }
+        }
+        
+        function loseLife() {
+            lives--;
+            updateUI();
+            
+            if (lives <= 0) {
+                endGame();
+            } else {
+                // Invulnerability period
+                player.shield = true;
+                setTimeout(() => {
+                    player.shield = false;
+                }, 2000);
+            }
+        }
+        
+        function speedUp() {
+            speed = Math.min(15, speed + 0.1);
+            updateUI();
+        }
+        
+        function updateUI() {
+            speedDisplay.textContent = Math.floor(speed);
+            scoreDisplay.textContent = score;
+            livesDisplay.textContent = lives;
+        }
+        
+        function endGame() {
+            gameRunning = false;
+            finalScoreDisplay.textContent = score;
+            gameOver.style.display = 'block';
+            cancelAnimationFrame(animationFrame);
+        }
+        
+        // Game loop
+        function gameLoop() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw background
+            drawBackground();
+            
+            // Update game objects
+            handlePlayerMovement();
+            updateStars();
+            updateStarDust();
+            updateObstacles();
+            updatePowerUps();
+            player.update();
+            
+            // Draw game objects
+            drawStarDust();
+            drawObstacles();
+            drawPowerUps();
+            player.draw();
+            
+            // Update score
+            score++;
+            
+            // Create star dust randomly
+            if (Math.random() < 0.02) {
+                createStarDust();
+            }
+            
+            // Update UI
+            if (gameRunning && score % 10 === 0) {
+                updateUI();
+            }
+            
+            // Continue game loop
+            if (gameRunning) {
+                animationFrame = requestAnimationFrame(gameLoop);
+            }
+        }
+        
+        // Start game
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            lives = 3;
+            speed = 5;
+            obstacles = [];
+            powerUps = [];
+            starDust = [];
+            obstacleInterval = 1500;
+            powerUpInterval = 5000;
+            lastObstacleTime = 0;
+            lastPowerUpTime = 0;
+            
+            // Reset player
+            player.x = canvas.width / 2;
+            player.y = canvas.height - 100;
+            player.shield = false;
+            player.boostTime = 0;
+            
+            // Update UI
+            updateUI();
+            
+            // Hide start/game over screens
+            gameStart.style.display = 'none';
+            gameOver.style.display = 'none';
+            
+            // Start game loop
+            createStars();
+            gameLoop();
+        }
+        
+        // Event listeners
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+        
+        // Show start screen
+        gameStart.style.display = 'block';
+    </script>
+</body>
+</html>
